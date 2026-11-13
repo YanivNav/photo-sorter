@@ -1,0 +1,608 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>התמונות של סבתא</title>
+<style>
+  :root { --bg: #faf7f2; --fg: #222; --muted: #666; --line: #c9c2b8; --on: #2e6b3a; --drop: #a8322d; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--fg);
+    font: 22px/1.4 system-ui, "Segoe UI", Arial, sans-serif; }
+  section { max-width: 1100px; margin: 0 auto; padding: 12px 16px; }
+  h1 { font-size: 30px; margin: 8px 0 12px; } h2 { font-size: 24px; margin: 24px 0 8px; }
+  p { margin: 8px 0; } .muted { color: var(--muted); font-size: 18px; }
+  button { font: inherit; color: inherit; min-height: 64px; padding: 6px 16px; border-radius: 12px;
+    border: 2px solid var(--line); background: #fff; cursor: pointer; }
+  button:disabled { opacity: .4; cursor: default; }
+  button:focus-visible, input:focus-visible { outline: 3px solid #1a5fb4; outline-offset: 2px; }
+  button.primary { background: var(--on); border-color: var(--on); color: #fff; font-weight: bold; }
+  input { font: inherit; padding: 8px 12px; border: 2px solid var(--line); border-radius: 10px; width: 100%; }
+  .err { color: var(--drop); }
+  progress { width: 100%; height: 24px; }
+  [hidden] { display: none !important; }
+
+  /* setup */
+  .names { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; }
+  .names label { font-size: 18px; color: var(--muted); }
+
+  /* review */
+  .bar { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0; }
+  .grid { display: flex; flex-wrap: wrap; gap: 10px; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; width: 100%; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  figure { margin: 0; width: 200px; font-size: 14px; }
+  figure canvas, figure .ph { display: block; width: 200px; height: 150px; object-fit: contain; background: #e8e2d9; }
+  figure.keep canvas { outline: 3px solid var(--on); } figure.drop canvas { outline: 3px solid var(--drop); }
+  figcaption { overflow-wrap: anywhere; margin: 4px 0; }
+  figure button { min-height: 40px; width: 100%; font-size: 16px; }
+  figure button[aria-pressed="true"] { background: var(--on); border-color: var(--on); color: #fff; }
+
+  /* sorting (grandma) */
+  #sort { display: flex; flex-direction: column; gap: 12px; height: 100vh; height: 100dvh; }
+  #sort header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  #progress { font-weight: bold; } #date { color: var(--muted); font-size: 18px; }
+  #photo { flex: 1; min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 12px; background: #ece7df; border-radius: 12px; overflow: hidden; }
+  #photo img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  #photo p { margin: 0; color: var(--muted); padding: 0 16px; text-align: center; }
+  .fams { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  @media (min-width: 800px) { .fams { grid-template-columns: repeat(4, 1fr); } }
+  .actions { display: grid; grid-template-columns: 2fr 1fr; gap: 10px; }
+  @media (max-width: 500px) { .actions { grid-template-columns: 1fr 1fr; } }
+  .fam[aria-pressed="true"] { background: var(--on); border-color: var(--on); color: #fff; }
+  .fam[aria-pressed="true"]::before { content: "✓ "; }
+  #keep { background: var(--on); border-color: var(--on); color: #fff; font-weight: bold; }
+  #drop { border-color: var(--drop); color: var(--drop); }
+  #drop[aria-pressed="true"] { background: var(--drop); color: #fff; }
+  #back { min-height: 52px; }
+  #msg { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px;
+    border-radius: 12px; background: #fdecea; color: var(--drop); }
+  .center { margin: auto; text-align: center; font-size: 28px; padding-top: 30vh; }
+</style>
+</head>
+<body>
+<p id="loading" class="center">רגע, טוענת…</p>
+
+<section id="start" hidden>
+  <h1>הכנת התמונות של סבתא</h1>
+  <p>1. שמות ארבעת האלבומים (כך יופיעו לסבתא וכך ייקראו התיקיות):</p>
+  <div class="names">
+    <div><label for="a0">אלבום 1</label><input id="a0" class="album-name"></div>
+    <div><label for="a1">אלבום 2</label><input id="a1" class="album-name"></div>
+    <div><label for="a2">אלבום 3</label><input id="a2" class="album-name"></div>
+    <div><label for="a3">אלבום 4</label><input id="a3" class="album-name"></div>
+  </div>
+  <p>2. בחירת התיקייה שאליה חילצת את קובצי ה-Takeout. כשהדפדפן שואל, לבחור <b>"לאפשר בכל ביקור"</b>.</p>
+  <button id="pick" class="primary">בחירת תיקיית התמונות</button>
+  <p id="start-err" class="err"></p>
+</section>
+
+<section id="perm" hidden>
+  <p class="center">כדי להמשיך, ללחוץ כאן:<br><br><button id="grant" class="primary">להמשיך</button></p>
+</section>
+
+<section id="scan" hidden>
+  <h1>סורקת את התמונות…</h1>
+  <p id="scan-phase"></p>
+  <progress id="scan-bar" max="1" value="0"></progress>
+  <p class="muted">אפשר לסגור את החלון ולהמשיך אחר כך: הסריקה ממשיכה מאותו מקום.</p>
+  <button id="scan-retry" hidden>לנסות שוב</button>
+</section>
+
+<section id="review" hidden>
+  <h1>בדיקה לפני המיון</h1>
+  <p id="summary"></p>
+  <div class="bar">
+    <button id="go" class="primary">להתחיל למיין ←</button>
+    <button id="rescan">סריקה מחדש</button>
+  </div>
+  <h2>אלבומים</h2>
+  <p id="album-status"></p>
+  <div class="bar"><button id="make">יצירת האלבומים</button></div>
+  <p id="album-result"></p>
+  <div id="sections"></div>
+</section>
+
+<section id="sort" hidden>
+  <header>
+    <div><div id="progress"></div><div id="date"></div></div>
+    <button id="back">↶ חזרה</button>
+  </header>
+  <div id="photo">
+    <img id="img" alt="תמונה" hidden>
+    <p id="ploading">רגע, טוענת…</p>
+    <p id="noimg" hidden>התמונה לא נטענה</p>
+    <button id="reload" hidden>לנסות שוב</button>
+  </div>
+  <div id="msg" role="alert" hidden><span>משהו השתבש. נסי שוב.</span><button id="retry">נסי שוב</button></div>
+  <div class="fams"></div>
+  <div class="actions">
+    <button id="keep">✓ לשמור ולהמשיך</button>
+    <button id="drop">✗ לא לשמור</button>
+  </div>
+</section>
+
+<section id="done" hidden><p class="center">סיימת! תודה רבה ❤️</p></section>
+
+<script type="module">
+import * as L from './logic.js';
+
+const CDN = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/';
+const MODEL = 'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_full_range/float16/1/blaze_face_full_range.tflite';
+const $ = s => document.querySelector(s);
+const nf = n => n.toLocaleString('he-IL');
+const REASONS = {'low-res': 'קטנות מדי', 'no people': 'בלי אנשים', blurry: 'מטושטשות', similar: 'כמעט זהות לתמונה אחרת',
+  duplicate: 'כפולות', unreadable: 'לא נפתחות'};
+
+// ---------- storage: IndexedDB, one record per photo + settings ----------
+const dbp = new Promise((ok, fail) => {
+  const r = indexedDB.open('grandma-photos', 1);
+  r.onupgradeneeded = () => { r.result.createObjectStore('photos', {keyPath: 'path'}); r.result.createObjectStore('meta'); };
+  r.onsuccess = () => ok(r.result);
+  r.onerror = () => fail(r.error);
+});
+const req = r => new Promise((ok, fail) => { r.onsuccess = () => ok(r.result); r.onerror = () => fail(r.error); });
+const store = async (name, mode = 'readonly') => (await dbp).transaction(name, mode).objectStore(name);
+const meta = async k => req((await store('meta')).get(k));
+const setMeta = async (k, v) => req((await store('meta', 'readwrite')).put(v, k));
+const allPhotos = async () => req((await store('photos')).getAll());
+const putPhoto = async p => req((await store('photos', 'readwrite')).put(p));
+
+function show(id) {
+  for (const s of document.querySelectorAll('body > section, #loading')) s.hidden = s.id !== id;
+}
+
+let root = null, busy = false;  // busy: a scan or album copy is running; routing waits
+const dirs = new Map();
+async function fileHandle(path) {  // 'a/b/c.jpg' -> its file handle under the chosen folder
+  const parts = path.split('/');
+  let d = root, pre = '';
+  for (const part of parts.slice(0, -1)) {
+    pre += part + '/';
+    if (!dirs.has(pre)) dirs.set(pre, await d.getDirectoryHandle(part));
+    d = dirs.get(pre);
+  }
+  return d.getFileHandle(parts.at(-1));
+}
+
+async function route() {
+  if (busy) return;
+  root = await meta('root');
+  dirs.clear();
+  const albums = await meta('albums');
+  if (!root || !albums) return startScreen();
+  if (await root.queryPermission({mode: 'readwrite'}) !== 'granted') return show('perm');
+  if (!(await meta('scanned'))) return scan();
+  if (location.hash === '#admin' || !(await meta('order'))) return reviewScreen();
+  return sortScreen();
+}
+addEventListener('hashchange', route);
+
+// ---------- setup (Yaniv) ----------
+async function startScreen() {
+  show('start');
+  const names = (await meta('albums')) || [];
+  document.querySelectorAll('.album-name').forEach((input, i) => input.value = names[i] || '');
+  if (!window.showDirectoryPicker) $('#start-err').textContent = 'צריך לפתוח את הדף ב-Edge או ב-Chrome.';
+}
+$('#pick').onclick = async () => {
+  const names = [...document.querySelectorAll('.album-name')].map(i => i.value.trim());
+  if (names.some(n => !L.safeName(n)) || new Set(names.map(n => L.safeName(n).toLowerCase())).size < 4) {
+    $('#start-err').textContent = 'צריך ארבעה שמות שונים.';
+    return;
+  }
+  let dir;
+  try {
+    dir = await showDirectoryPicker({id: 'grandma-photos', mode: 'readwrite'});
+  } catch {
+    return;  // cancelled
+  }
+  await setMeta('albums', names);
+  await setMeta('root', dir);
+  await setMeta('scanned', false);
+  navigator.storage.persist?.();  // ask the browser never to clear this site's data
+  route();
+};
+$('#grant').onclick = async () => {
+  await (await meta('root')).requestPermission({mode: 'readwrite'}).catch(() => {});
+  route();
+};
+
+// ---------- scan: measure every photo once; saved after each, so it resumes after a close ----------
+let detector = null;
+async function loadDetector() {
+  if (detector) return detector;
+  const {FaceDetector, FilesetResolver} = await import(CDN + 'vision_bundle.mjs');
+  const vision = await FilesetResolver.forVisionTasks(CDN + 'wasm');
+  return detector = await FaceDetector.createFromOptions(vision, {
+    baseOptions: {modelAssetPath: MODEL, delegate: 'CPU'}, runningMode: 'IMAGE', minDetectionConfidence: 0.3});
+}
+
+const ext = name => name.slice(name.lastIndexOf('.')).toLowerCase();
+async function walk(dir, prefix, found) {
+  const files = [], jsons = [];
+  for await (const [name, h] of dir.entries()) {
+    if (h.kind === 'directory') {
+      if (!(prefix === '' && name === L.ALBUMS_DIR)) await walk(h, prefix + name + '/', found);
+    } else if (name.toLowerCase().endsWith('.json')) jsons.push(h);
+    else if (L.IMAGES.includes(ext(name))) files.push(h);
+  }
+  for (const h of files) found.push({path: prefix + h.name, h, jsons});
+  return found;
+}
+
+function canvas(src, x, y, w, h, scale) {
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(w * scale));
+  c.height = Math.max(1, Math.round(h * scale));
+  const g = c.getContext('2d', {willReadFrequently: true});
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(src, x, y, w, h, 0, 0, c.width, c.height);
+  return c;
+}
+function gray(c) {  // luminance like PIL's "L"
+  const d = c.getContext('2d', {willReadFrequently: true}).getImageData(0, 0, c.width, c.height).data;
+  const g = new Float64Array(c.width * c.height);
+  for (let i = 0; i < g.length; i++) g[i] = (d[4 * i] * 299 + d[4 * i + 1] * 587 + d[4 * i + 2] * 114) / 1000;
+  return g;
+}
+function rotated(c, deg) {
+  const r = document.createElement('canvas');
+  [r.width, r.height] = [c.height, c.width];
+  const g = r.getContext('2d', {willReadFrequently: true});
+  g.translate(r.width / 2, r.height / 2);
+  g.rotate(deg * Math.PI / 180);
+  g.drawImage(c, -c.width / 2, -c.height / 2);
+  return r;
+}
+
+// Faces: the whole photo; if none, 2x2 overlapping tiles (small faces); if none, turned 90/270 (sideways scans).
+function faceStats(bmp, c, s) {
+  const W = bmp.width, H = bmp.height, minSide = L.FACE_MIN * Math.max(W, H);
+  // each face as a rectangle in `src`: the full-size photo when possible (sharpness needs the detail), else the
+  // turned canvas it was found on
+  const find = (cv, scale, src = bmp, dx = 0, dy = 0) => detector.detect(cv).detections.map(({boundingBox: b, categories}) => {
+    const k = src === bmp ? 1 / scale : 1, x = (src === bmp ? dx : 0) + b.originX * k, y = (src === bmp ? dy : 0) + b.originY * k;
+    return {src, x, y, w: b.width * k, h: b.height * k, score: categories[0].score, side: Math.min(b.width, b.height) / scale};
+  });
+  const tiles = () => {
+    const tw = W / 2 * 1.25, th = H / 2 * 1.25, ts = Math.min(1, 1024 / Math.max(tw, th)), out = [];
+    for (const x of [0, W - tw]) for (const y of [0, H - th]) out.push(...find(canvas(bmp, x, y, tw, th, ts), ts, bmp, x, y));
+    return out;
+  };
+  const turned = deg => { const r = rotated(c, deg); return find(r, s, r); };
+  let best = 0;
+  for (const attempt of [() => find(c, s), tiles, () => turned(90), () => turned(270)]) {
+    const dets = attempt();
+    best = Math.max(best, ...dets.map(d => d.score));
+    const ok = dets.filter(d => d.score >= L.FACE_SCORE && d.side >= minSide);
+    if (!ok.length) continue;
+    const f = ok.reduce((a, b) => (b.w * b.h > a.w * a.h ? b : a));
+    const face = canvas(f.src, f.x, f.y, f.w, f.h, Math.min(1, 112 / Math.max(f.w, f.h)));
+    return {faces: ok.length, faceScore: best, faceSharp: L.lapVar(gray(face), face.width, face.height)};
+  }
+  return {faces: 0, faceScore: best, faceSharp: null};
+}
+
+async function measure(f) {
+  const rec = {path: f.path};
+  try {
+    const file = await f.h.getFile();
+    rec.size = file.size;
+    const buf = await file.arrayBuffer();
+    rec.hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', buf))].map(b => b.toString(16).padStart(2, '0')).join('');
+    rec.taken = null;
+    const j = L.sidecar(f.h.name, f.jsons.map(h => h.name));
+    if (j) rec.taken = L.takenFromJson(await (await f.jsons.find(h => h.name === j).getFile()).text().catch(() => ''));
+    const bmp = await createImageBitmap(new Blob([buf], {type: file.type}));  // upright: EXIF rotation applied
+    rec.w = bmp.width;
+    rec.h = bmp.height;
+    const s = Math.min(1, 1024 / Math.max(rec.w, rec.h)), c = canvas(bmp, 0, 0, rec.w, rec.h, s);
+    rec.phash = L.phash(gray(square32(c)));
+    Object.assign(rec, faceStats(bmp, c, s));
+    bmp.close();
+  } catch (e) {  // corrupt, or a format the browser can't open (HEIC): "unreadable" on the review
+    rec.err = `${e.name}: ${e.message}`;
+  }
+  return rec;
+}
+function square32(c) {
+  const q = document.createElement('canvas');
+  q.width = q.height = 32;
+  const g = q.getContext('2d', {willReadFrequently: true});
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(c, 0, 0, 32, 32);
+  return q;
+}
+
+async function scan() {
+  show('scan');
+  busy = true;
+  $('#scan-retry').hidden = true;
+  const lock = await navigator.wakeLock?.request('screen').catch(() => null);  // don't let the computer sleep
+  try {
+    $('#scan-phase').textContent = 'מחפשת תמונות בתיקייה…';
+    const known = new Map((await allPhotos()).map(p => [p.path, p]));
+    const todo = (await walk(root, '', [])).filter(f => !known.has(f.path) || known.get(f.path).err);
+    await loadDetector();
+    for (const [i, f] of todo.entries()) {
+      const old = known.get(f.path);
+      await putPhoto({...await measure(f), ...(old && old.choice ? {choice: old.choice} : {})});
+      $('#scan-phase').textContent = `${nf(i + 1)} מתוך ${nf(todo.length)} תמונות`;
+      $('#scan-bar').value = (i + 1) / todo.length;
+    }
+    await setMeta('scanned', true);
+    busy = false;
+    route();
+  } catch (e) {
+    busy = false;
+    $('#scan-phase').textContent = 'משהו השתבש (אולי אין חיבור לאינטרנט). ' + e.message;
+    $('#scan-retry').hidden = false;
+  } finally {
+    lock?.release();
+  }
+}
+$('#scan-retry').onclick = route;
+
+// ---------- review (Yaniv, #admin): what was set aside, one-click rescue, start sorting, albums ----------
+const sortKey = p => [p.taken == null ? 1 : 0, p.taken || '', p.path];
+const bySortKey = (a, b) => {
+  const [x, y] = [sortKey(a), sortKey(b)];
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1;
+  return 0;
+};
+
+let thumbQ = [], thumbActive = 0;
+const io = new IntersectionObserver(es => es.forEach(e => {
+  if (!e.isIntersecting) return;
+  io.unobserve(e.target);
+  thumbQ.push(e.target);
+  pumpThumbs();
+}), {rootMargin: '400px'});
+function pumpThumbs() {
+  while (thumbActive < 4 && thumbQ.length) {
+    const cv = thumbQ.shift();
+    thumbActive++;
+    fileHandle(cv.dataset.path).then(h => h.getFile()).then(f => createImageBitmap(f, {resizeWidth: 300, resizeQuality: 'medium'}))
+      .then(b => {
+        [cv.width, cv.height] = [b.width, b.height];
+        cv.getContext('2d').drawImage(b, 0, 0);
+        b.close();
+      }).catch(() => {}).finally(() => { thumbActive--; pumpThumbs(); });
+  }
+}
+
+function card(p, label, keep, cls = '') {
+  const f = document.createElement('figure');
+  f.className = cls;
+  const cv = document.createElement('canvas');
+  cv.dataset.path = p.path;
+  io.observe(cv);
+  const cap = document.createElement('figcaption');
+  cap.append(label + ' · ', Object.assign(document.createElement('bdi'), {textContent: p.path}));
+  f.append(cv, cap);
+  if (cls !== 'keep') {
+    const b = document.createElement('button');
+    const paint = () => {
+      b.setAttribute('aria-pressed', keep.has(p.path));
+      b.textContent = keep.has(p.path) ? '✓ תוחזר (ביטול)' : 'להחזיר';
+    };
+    b.onclick = async () => {
+      keep.has(p.path) ? keep.delete(p.path) : keep.add(p.path);
+      paint();
+      await setMeta('keep', [...keep]);
+    };
+    paint();
+    f.append(b);
+  }
+  return f;
+}
+
+async function reviewScreen() {
+  show('review');
+  thumbQ = [];
+  const recs = await allPhotos(), keep = new Set((await meta('keep')) || []), albums = await meta('albums');
+  const dec = L.decide(recs, keep), by = new Map(recs.map(r => [r.path, r])), groups = {};
+  for (const [p, d] of dec) (groups[d.reason ?? 'kept'] ||= []).push({...by.get(p), ...d});
+  const n = k => (groups[k] || []).length;
+  $('#summary').textContent = `נשארות למיון ${nf(n('kept'))} תמונות מתוך ${nf(recs.length)}. הוסרו: ` +
+    Object.entries(REASONS).map(([k, t]) => `${t} ${nf(n(k))}`).join(' · ') +
+    '. מה שמוחזר כאן נכנס למיון כשלוחצים "להתחיל למיין".';
+
+  const order = await meta('order');
+  const decided = order ? order.filter(p => by.get(p)?.choice).length : 0;
+  $('#album-status').textContent = order ? `סבתא מיינה ${nf(decided)} מתוך ${nf(order.length)} תמונות.` : 'המיון עוד לא התחיל.';
+  $('#make').disabled = !order || decided < order.length;
+
+  const out = $('#sections');
+  out.replaceChildren();
+  const section = (title, count, nodes) => {
+    const h = document.createElement('h2');
+    h.textContent = `${title} (${nf(count)})`;
+    const g = document.createElement('div');
+    g.className = 'grid';
+    g.append(...nodes);
+    out.append(h, g);
+  };
+  const list = (k, cmp) => (groups[k] || []).sort(cmp);
+  section(REASONS['no people'], n('no people'), list('no people', (a, b) => b.faceScore - a.faceScore)
+    .map(p => card(p, `ביטחון ${p.faceScore.toFixed(2)}`, keep)));
+  section(REASONS.blurry, n('blurry'), list('blurry', (a, b) => b.faceSharp - a.faceSharp)
+    .map(p => card(p, `חדות ${Math.round(p.faceSharp)}`, keep)));
+  section(REASONS['low-res'], n('low-res'), list('low-res', (a, b) => Math.max(b.w, b.h) - Math.max(a.w, a.h))
+    .map(p => card(p, `${p.w}×${p.h}`, keep)));
+  const sim = new Map();
+  for (const p of groups.similar || []) sim.set(p.dupOf, [...(sim.get(p.dupOf) || []), p]);
+  section(REASONS.similar, n('similar'), [...sim].sort((a, b) => Math.max(...b[1].map(p => p.dist)) - Math.max(...a[1].map(p => p.dist)))
+    .map(([k, ms]) => {
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.append(card(by.get(k), 'נשארת', keep, 'keep'), ...ms.map(p => card(p, `מרחק ${p.dist}`, keep, 'drop')));
+      return row;
+    }));
+  section(REASONS.unreadable, n('unreadable'), (groups.unreadable || []).map(p => Object.assign(document.createElement('p'),
+    {textContent: `${p.path} — ${p.err}`})));
+  $('#go').onclick = async () => {
+    const dec2 = L.decide(await allPhotos(), new Set((await meta('keep')) || []));
+    const kept = (await allPhotos()).filter(p => dec2.get(p.path).reason === null).sort(bySortKey);
+    await setMeta('order', kept.map(p => p.path));
+    location.hash = '';
+    route();
+  };
+  $('#rescan').onclick = async () => {
+    await setMeta('scanned', false);
+    route();
+  };
+  $('#make').onclick = () => makeAlbums(albums);
+}
+
+// ---------- albums: copy kept photos into אלבומים/<album>/ (resumable) ----------
+async function makeAlbums(albums) {
+  busy = true;
+  $('#make').disabled = true;
+  const lock = await navigator.wakeLock?.request('screen').catch(() => null);
+  const res = $('#album-result');
+  try {
+    const recs = new Map((await allPhotos()).map(p => [p.path, p]));
+    const files = L.albumFiles((await meta('order')).map(p => recs.get(p)), albums);
+    const top = await root.getDirectoryHandle(L.ALBUMS_DIR, {create: true}), made = new Map();
+    let copied = 0;
+    for (const [i, f] of files.entries()) {
+      if (!made.has(f.folder)) made.set(f.folder, await top.getDirectoryHandle(f.folder, {create: true}));
+      const src = await (await fileHandle(f.path)).getFile();
+      const there = await made.get(f.folder).getFileHandle(f.name).then(h => h.getFile()).catch(() => null);
+      if (!there || there.size !== src.size) {
+        const w = await (await made.get(f.folder).getFileHandle(f.name, {create: true})).createWritable();
+        await w.write(src);
+        await w.close();  // the file appears only now: an interrupted copy never leaves half a photo
+        copied++;
+      }
+      res.textContent = `מעתיקה… ${nf(i + 1)} מתוך ${nf(files.length)}`;
+    }
+    const per = albums.map(a => `${a}: ${nf(files.filter(f => f.folder === L.safeName(a)).length)}`).join(' · ');
+    res.textContent = `מוכן (${nf(copied)} הועתקו עכשיו). ${per}. עכשיו: drive.google.com ← "חדש" ← "העלאת תיקייה" ← ` +
+      `לבחור את "${L.ALBUMS_DIR}" שבתוך תיקיית התמונות. אחר כך לשתף כל תיקייה עם המשפחה שלה.`;
+  } catch (e) {
+    res.textContent = 'ההעתקה נעצרה: ' + e.message + '. אפשר ללחוץ שוב, היא תמשיך מאותו מקום.';
+  } finally {
+    busy = false;
+    $('#make').disabled = false;
+    lock?.release();
+  }
+}
+
+// ---------- sorting (grandma): one photo at a time ----------
+let S = null;
+async function sortScreen() {
+  show('sort');
+  const order = await meta('order'), albums = await meta('albums');
+  S = {order, recs: new Map((await allPhotos()).map(p => [p.path, p])), cur: null, sel: new Set(),
+    ready: false, retry: null, saving: false, urls: new Map(), shown: 0};
+  $('.fams').replaceChildren(...albums.map((label, i) => {
+    const b = document.createElement('button');
+    b.className = 'fam';
+    b.textContent = label;
+    b.dataset.i = i;
+    b.onclick = () => { S.sel.has(i) ? S.sel.delete(i) : S.sel.add(i); render(); };
+    return b;
+  }));
+  const first = order.findIndex(p => !S.recs.get(p)?.choice);
+  if (first < 0) return show('done');
+  showPhoto(first);
+}
+
+const urlFor = i => {
+  if (!S.urls.has(i)) S.urls.set(i, fileHandle(S.order[i]).then(h => h.getFile()).then(f => URL.createObjectURL(f)));
+  return S.urls.get(i);
+};
+function showPhoto(i) {
+  S.cur = i;
+  const rec = S.recs.get(S.order[i]);
+  S.sel = new Set(Array.isArray(rec.choice) ? rec.choice : []);
+  const token = ++S.shown, im = new Image();
+  S.ready = false;
+  $('#img').hidden = $('#noimg').hidden = $('#reload').hidden = true;
+  $('#ploading').hidden = false;
+  render();
+  im.onload = () => {  // the buttons wait until she can see the photo
+    if (token !== S.shown) return;
+    im.id = 'img';
+    im.alt = 'תמונה';
+    $('#img').replaceWith(im);
+    $('#ploading').hidden = true;
+    S.ready = true;
+    render();
+  };
+  im.onerror = () => {  // she can still decide, or retry, so she's never stuck
+    if (token !== S.shown) return;
+    $('#ploading').hidden = true;
+    $('#noimg').hidden = $('#reload').hidden = false;
+    S.ready = true;
+    render();
+  };
+  urlFor(i).then(u => { im.src = u; }, () => im.onerror());
+  for (const k of [i + 1, i + 2]) if (k < S.order.length) urlFor(k).then(u => { new Image().src = u; }, () => {});
+  for (const [k, u] of S.urls) if (k < i - 2 || k > i + 3) { u.then(URL.revokeObjectURL, () => {}); S.urls.delete(k); }
+}
+
+async function save(choice) {
+  if (S.saving || S.retry || !S.ready) return;
+  const rec = S.recs.get(S.order[S.cur]);
+  const step = async () => {
+    await putPhoto({...rec, choice});
+    rec.choice = choice;
+    let next = S.cur + 1;
+    if (next >= S.order.length) next = S.order.findIndex(p => !S.recs.get(p).choice);  // anything skipped?
+    if (next < 0) return show('done');
+    showPhoto(next);
+  };
+  S.saving = true;
+  render();
+  try {
+    await step();
+    S.retry = null;
+  } catch {
+    S.retry = step;
+  }
+  S.saving = false;
+  render();
+}
+$('#keep').onclick = () => save([...S.sel].sort());
+$('#drop').onclick = () => save('drop');
+$('#back').onclick = () => { if (!S.saving && !S.retry && S.cur > 0) showPhoto(S.cur - 1); };
+$('#retry').onclick = async () => {
+  if (S.saving || !S.retry) return;
+  const step = S.retry;
+  S.retry = null;
+  S.saving = true;
+  render();
+  try { await step(); } catch { S.retry = step; }
+  S.saving = false;
+  render();
+};
+$('#reload').onclick = () => {
+  const i = S.cur;
+  S.urls.delete(i);
+  showPhoto(i);
+};
+
+function render() {
+  if (S.cur == null) return;
+  const rec = S.recs.get(S.order[S.cur]), locked = S.saving || !!S.retry;
+  $('#progress').textContent = `תמונה ${nf(S.cur + 1)} מתוך ${nf(S.order.length)}`;
+  $('#date').textContent = rec.taken ? rec.taken.slice(0, 10).split('-').reverse().join('/') : '';
+  for (const b of document.querySelectorAll('.fam')) {
+    b.setAttribute('aria-pressed', S.sel.has(+b.dataset.i));
+    b.disabled = locked || !S.ready;
+  }
+  $('#keep').disabled = locked || !S.ready || !S.sel.size;
+  $('#drop').disabled = locked || !S.ready;
+  $('#drop').setAttribute('aria-pressed', rec.choice === 'drop');
+  $('#back').disabled = locked || S.cur <= 0;
+  $('#msg').hidden = !S.retry;
+}
+
+route().catch(e => { $('#loading').textContent = 'משהו השתבש: ' + e.message; });
+</script>
+</body>
+</html>
