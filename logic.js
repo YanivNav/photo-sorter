@@ -7,7 +7,8 @@ export const BLUR = 10;           // Laplacian variance of the largest face belo
                                   // motion-blurred 6, soft night shot 15, sharp ones 57+
 export const EDITED = ['-edited'];  // Takeout's suffix for her edited copy (localized in some languages: add it here)
 export const ALBUMS_DIR = 'אלבומים';
-export const IMAGES = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.heic', '.heif'];
+// every image type Takeout may hold; ones the browser can't open (HEIC, TIFF) are counted as unreadable, not skipped
+export const IMAGES = ['.jpg', '.jpeg', '.jfif', '.png', '.webp', '.avif', '.gif', '.bmp', '.heic', '.heif', '.tif', '.tiff'];
 
 const pad = n => String(n).padStart(2, '0');
 export const fmt = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +

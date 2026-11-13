@@ -31,8 +31,8 @@
   .grid { display: flex; flex-wrap: wrap; gap: 10px; }
   .row { display: flex; flex-wrap: wrap; gap: 10px; width: 100%; padding: 8px 0; border-bottom: 1px solid var(--line); }
   figure { margin: 0; width: 200px; font-size: 14px; }
-  figure canvas, figure .ph { display: block; width: 200px; height: 150px; object-fit: contain; background: #e8e2d9; }
-  figure.keep canvas { outline: 3px solid var(--on); } figure.drop canvas { outline: 3px solid var(--drop); }
+  figure img { display: block; width: 200px; height: 150px; object-fit: contain; background: #e8e2d9; }
+  figure.keep img { outline: 3px solid var(--on); } figure.drop img { outline: 3px solid var(--drop); }
   figcaption { overflow-wrap: anywhere; margin: 4px 0; }
   figure button { min-height: 40px; width: 100%; font-size: 16px; }
   figure button[aria-pressed="true"] { background: var(--on); border-color: var(--on); color: #fff; }
@@ -72,13 +72,16 @@
     <div><label for="a2">אלבום 3</label><input id="a2" class="album-name"></div>
     <div><label for="a3">אלבום 4</label><input id="a3" class="album-name"></div>
   </div>
-  <p>2. בחירת התיקייה שאליה חילצת את קובצי ה-Takeout. כשהדפדפן שואל, לבחור <b>"לאפשר בכל ביקור"</b>.</p>
+  <p>2. בחירת התיקייה שאליה חילצת את קובצי ה-Takeout, ולאשר.</p>
+  <p class="muted">3. כשהסריקה מתחילה: לסגור את הדפדפן לגמרי, לפתוח שוב את הדף, ללחוץ "להמשיך" ולבחור
+    <b>"לאפשר בכל ביקור"</b> (Allow on every visit). רק כך סבתא לא תישאל בכל פעם.</p>
   <button id="pick" class="primary">בחירת תיקיית התמונות</button>
   <p id="start-err" class="err"></p>
 </section>
 
 <section id="perm" hidden>
   <p class="center">כדי להמשיך, ללחוץ כאן:<br><br><button id="grant" class="primary">להמשיך</button></p>
+  <p class="muted" style="text-align:center">ובחלון שנפתח: "לאפשר בכל ביקור" (Allow on every visit)</p>
 </section>
 
 <section id="scan" hidden>
@@ -92,9 +95,11 @@
 <section id="review" hidden>
   <h1>בדיקה לפני המיון</h1>
   <p id="summary"></p>
+  <p id="persist" class="muted"></p>
   <div class="bar">
     <button id="go" class="primary">להתחיל למיין ←</button>
     <button id="rescan">סריקה מחדש</button>
+    <button id="restart">התחלה מחדש</button>
   </div>
   <h2>אלבומים</h2>
   <p id="album-status"></p>
@@ -165,8 +170,16 @@ async function fileHandle(path) {  // 'a/b/c.jpg' -> its file handle under the c
   return d.getFileHandle(parts.at(-1));
 }
 
-async function route() {
+function route() {  // never leaves her on a blank or English error screen
+  return routeNow().catch(e => {
+    console.error(e);
+    show('loading');
+    $('#loading').textContent = 'משהו השתבש. כדאי לסגור את הדף ולפתוח אותו שוב.';
+  });
+}
+async function routeNow() {
   if (busy) return;
+  navigator.storage.persist?.();  // ask every visit: Chrome says yes once the page is bookmarked / used often
   root = await meta('root');
   dirs.clear();
   const albums = await meta('albums');
@@ -200,7 +213,6 @@ $('#pick').onclick = async () => {
   await setMeta('albums', names);
   await setMeta('root', dir);
   await setMeta('scanned', false);
-  navigator.storage.persist?.();  // ask the browser never to clear this site's data
   route();
 };
 $('#grant').onclick = async () => {
@@ -284,28 +296,51 @@ function faceStats(bmp, c, s) {
   return {faces: 0, faceScore: best, faceSharp: null};
 }
 
-async function measure(f) {
-  const rec = {path: f.path};
+async function readTaken(f) {  // best effort: a bad .json only costs the date
   try {
-    const file = await f.h.getFile();
-    rec.size = file.size;
-    const buf = await file.arrayBuffer();
-    rec.hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', buf))].map(b => b.toString(16).padStart(2, '0')).join('');
-    rec.taken = null;
     const j = L.sidecar(f.h.name, f.jsons.map(h => h.name));
-    if (j) rec.taken = L.takenFromJson(await (await f.jsons.find(h => h.name === j).getFile()).text().catch(() => ''));
-    const bmp = await createImageBitmap(new Blob([buf], {type: file.type}));  // upright: EXIF rotation applied
+    return j ? L.takenFromJson(await (await f.jsons.find(h => h.name === j).getFile()).text()) : null;
+  } catch {
+    return null;
+  }
+}
+
+const MEASURED = ['w', 'h', 'phash', 'faces', 'faceScore', 'faceSharp', 'err'];
+// Reading the file failing (access lost, folder moved) throws: the scan stops rather than marking the rest unreadable.
+// Only a photo the browser can't decode (corrupt, HEIC, TIFF) becomes "unreadable".
+async function measure(f, byHash) {
+  const file = await f.h.getFile();
+  const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', await file.arrayBuffer()))]
+    .map(b => b.toString(16).padStart(2, '0')).join('');
+  const rec = {path: f.path, size: file.size, hash, taken: await readTaken(f)};
+  const same = byHash.get(hash);  // Takeout puts the same photo in a year folder and in album folders
+  if (same) return {...rec, ...Object.fromEntries(MEASURED.filter(k => k in same).map(k => [k, same[k]]))};
+  let bmp;
+  try {
+    bmp = await createImageBitmap(file);  // upright: EXIF rotation applied
+  } catch (e) {
+    return {...rec, err: `${e.name}: ${e.message}`};
+  }
+  try {
     rec.w = bmp.width;
     rec.h = bmp.height;
     const s = Math.min(1, 1024 / Math.max(rec.w, rec.h)), c = canvas(bmp, 0, 0, rec.w, rec.h, s);
     rec.phash = L.phash(gray(square32(c)));
-    Object.assign(rec, faceStats(bmp, c, s));
+    return Object.assign(rec, faceStats(bmp, c, s));
+  } finally {
     bmp.close();
-  } catch (e) {  // corrupt, or a format the browser can't open (HEIC): "unreadable" on the review
-    rec.err = `${e.name}: ${e.message}`;
   }
-  return rec;
 }
+
+let lockWanted = false, lock = null;  // keep the screen (and the computer) awake while scanning or copying
+async function stayAwake(on) {
+  lockWanted = on;
+  if (on) lock = await navigator.wakeLock?.request('screen').catch(() => null);
+  else lock?.release();
+}
+document.addEventListener('visibilitychange', () => {  // Edge drops the lock whenever the tab is hidden
+  if (lockWanted && document.visibilityState === 'visible') stayAwake(true);
+});
 function square32(c) {
   const q = document.createElement('canvas');
   q.width = q.height = 32;
@@ -319,15 +354,17 @@ async function scan() {
   show('scan');
   busy = true;
   $('#scan-retry').hidden = true;
-  const lock = await navigator.wakeLock?.request('screen').catch(() => null);  // don't let the computer sleep
+  stayAwake(true);
   try {
     $('#scan-phase').textContent = 'מחפשת תמונות בתיקייה…';
     const known = new Map((await allPhotos()).map(p => [p.path, p]));
+    const byHash = new Map([...known.values()].filter(p => p.hash && !p.err).map(p => [p.hash, p]));
     const todo = (await walk(root, '', [])).filter(f => !known.has(f.path) || known.get(f.path).err);
     await loadDetector();
     for (const [i, f] of todo.entries()) {
-      const old = known.get(f.path);
-      await putPhoto({...await measure(f), ...(old && old.choice ? {choice: old.choice} : {})});
+      const old = known.get(f.path), rec = await measure(f, byHash);
+      await putPhoto({...rec, ...(old && old.choice ? {choice: old.choice} : {})});
+      if (!rec.err && !byHash.has(rec.hash)) byHash.set(rec.hash, rec);
       $('#scan-phase').textContent = `${nf(i + 1)} מתוך ${nf(todo.length)} תמונות`;
       $('#scan-bar').value = (i + 1) / todo.length;
     }
@@ -336,10 +373,12 @@ async function scan() {
     route();
   } catch (e) {
     busy = false;
-    $('#scan-phase').textContent = 'משהו השתבש (אולי אין חיבור לאינטרנט). ' + e.message;
+    detector = null;  // rebuilt on retry
+    $('#scan-phase').textContent = 'הסריקה נעצרה: אין גישה לתיקייה או אין חיבור לאינטרנט. מה שנסרק נשמר. ' +
+      `(${e.name}: ${e.message})`;
     $('#scan-retry').hidden = false;
   } finally {
-    lock?.release();
+    stayAwake(false);
   }
 }
 $('#scan-retry').onclick = route;
@@ -361,26 +400,29 @@ const io = new IntersectionObserver(es => es.forEach(e => {
 }), {rootMargin: '400px'});
 function pumpThumbs() {
   while (thumbActive < 4 && thumbQ.length) {
-    const cv = thumbQ.shift();
+    const img = thumbQ.shift();
     thumbActive++;
-    fileHandle(cv.dataset.path).then(h => h.getFile()).then(f => createImageBitmap(f, {resizeWidth: 300, resizeQuality: 'medium'}))
+    // a small JPEG per card (~10 KB), not a live canvas: thousands of cards stay light on an old laptop
+    fileHandle(img.dataset.path).then(h => h.getFile()).then(f => createImageBitmap(f, {resizeWidth: 200, resizeQuality: 'medium'}))
       .then(b => {
-        [cv.width, cv.height] = [b.width, b.height];
-        cv.getContext('2d').drawImage(b, 0, 0);
+        const cv = canvas(b, 0, 0, b.width, b.height, 1);
         b.close();
-      }).catch(() => {}).finally(() => { thumbActive--; pumpThumbs(); });
+        return new Promise(ok => cv.toBlob(ok, 'image/jpeg', 0.8));
+      }).then(blob => { img.src = URL.createObjectURL(blob); })
+      .catch(() => {}).finally(() => { thumbActive--; pumpThumbs(); });
   }
 }
 
 function card(p, label, keep, cls = '') {
   const f = document.createElement('figure');
   f.className = cls;
-  const cv = document.createElement('canvas');
-  cv.dataset.path = p.path;
-  io.observe(cv);
+  const img = document.createElement('img');
+  img.alt = '';
+  img.dataset.path = p.path;
+  io.observe(img);
   const cap = document.createElement('figcaption');
   cap.append(label + ' · ', Object.assign(document.createElement('bdi'), {textContent: p.path}));
-  f.append(cv, cap);
+  f.append(img, cap);
   if (cls !== 'keep') {
     const b = document.createElement('button');
     const paint = () => {
@@ -454,14 +496,23 @@ async function reviewScreen() {
     route();
   };
   $('#make').onclick = () => makeAlbums(albums);
+  $('#restart').onclick = async () => {  // wrong folder or a typo in an album name: forget everything, start over
+    if (!confirm('למחוק את הסריקה ואת כל הבחירות ולהתחיל מההתחלה? (התמונות עצמן לא נמחקות)')) return;
+    (await dbp).close();
+    await new Promise(r => { const q = indexedDB.deleteDatabase('grandma-photos'); q.onsuccess = q.onerror = q.onblocked = r; });
+    location.href = location.pathname;
+  };
+  $('#persist').textContent = (await navigator.storage.persisted?.())
+    ? 'הדפדפן ישמור את הבחירות של סבתא לתמיד ✓'
+    : '⚠ הדפדפן עדיין לא הבטיח לשמור את הבחירות. להוסיף את הדף למועדפים, לפתוח אותו שוב, ולבדוק כאן.';
 }
 
 // ---------- albums: copy kept photos into אלבומים/<album>/ (resumable) ----------
 async function makeAlbums(albums) {
   busy = true;
   $('#make').disabled = true;
-  const lock = await navigator.wakeLock?.request('screen').catch(() => null);
-  const res = $('#album-result');
+  stayAwake(true);
+  const res = $('#album-result'), missing = [];
   try {
     const recs = new Map((await allPhotos()).map(p => [p.path, p]));
     const files = L.albumFiles((await meta('order')).map(p => recs.get(p)), albums);
@@ -469,7 +520,12 @@ async function makeAlbums(albums) {
     let copied = 0;
     for (const [i, f] of files.entries()) {
       if (!made.has(f.folder)) made.set(f.folder, await top.getDirectoryHandle(f.folder, {create: true}));
-      const src = await (await fileHandle(f.path)).getFile();
+      const src = await fileHandle(f.path).then(h => h.getFile()).catch(e => {
+        if (e.name !== 'NotFoundError') throw e;  // access lost: stop. One photo deleted or moved: skip it, list it
+        missing.push(f.path);
+        return null;
+      });
+      if (!src) continue;
       const there = await made.get(f.folder).getFileHandle(f.name).then(h => h.getFile()).catch(() => null);
       if (!there || there.size !== src.size) {
         const w = await (await made.get(f.folder).getFileHandle(f.name, {create: true})).createWritable();
@@ -481,13 +537,15 @@ async function makeAlbums(albums) {
     }
     const per = albums.map(a => `${a}: ${nf(files.filter(f => f.folder === L.safeName(a)).length)}`).join(' · ');
     res.textContent = `מוכן (${nf(copied)} הועתקו עכשיו). ${per}. עכשיו: drive.google.com ← "חדש" ← "העלאת תיקייה" ← ` +
-      `לבחור את "${L.ALBUMS_DIR}" שבתוך תיקיית התמונות. אחר כך לשתף כל תיקייה עם המשפחה שלה.`;
+      `לבחור את "${L.ALBUMS_DIR}" שבתוך תיקיית התמונות. אחר כך לשתף כל תיקייה עם המשפחה שלה.` +
+      (missing.length ? ` ⚠ ${nf(missing.length)} תמונות לא נמצאו בתיקייה ולא הועתקו: ${missing.slice(0, 5).join(', ')}` +
+        (missing.length > 5 ? '…' : '') : '');
   } catch (e) {
-    res.textContent = 'ההעתקה נעצרה: ' + e.message + '. אפשר ללחוץ שוב, היא תמשיך מאותו מקום.';
+    res.textContent = `ההעתקה נעצרה (${e.name}: ${e.message}). אפשר ללחוץ שוב, היא תמשיך מאותו מקום.`;
   } finally {
     busy = false;
     $('#make').disabled = false;
-    lock?.release();
+    stayAwake(false);
   }
 }
 
@@ -602,7 +660,7 @@ function render() {
   $('#msg').hidden = !S.retry;
 }
 
-route().catch(e => { $('#loading').textContent = 'משהו השתבש: ' + e.message; });
+route();
 </script>
 </body>
 </html>

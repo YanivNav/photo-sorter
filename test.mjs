@@ -84,5 +84,6 @@ assert.deepEqual(L.albumFiles([
 assert.deepEqual(L.albumFiles([{path: 'a/x.jpg', choice: [0]}, {path: 'b/X.JPG', choice: [0]}], ['A']).map(f => f.name),
   ['x.jpg', 'X (2).JPG']);  // Windows file names ignore case
 assert.equal(L.safeName('B/1: "x"?'), 'B-1- -x--');  // Windows-safe folder names
+for (const e of ['.bmp', '.avif', '.jfif', '.tif', '.tiff']) assert.ok(L.IMAGES.includes(e), e);  // old scans: never skipped silently
 
 console.log('ok');
